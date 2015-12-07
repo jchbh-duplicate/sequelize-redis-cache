@@ -129,8 +129,8 @@ describe('Sequelize-Redis-Cache', function() {
       .ttl(1);
     return obj.find(query)
       .then(function(res) {
-        var key = obj.key();
-        obj.clearCache(query)
+        var key = obj.key('find', query);
+        obj.clearCache('find',query)
           .then(function() {
             rc.get(key, function(err, res) {
               should.not.exist(err);

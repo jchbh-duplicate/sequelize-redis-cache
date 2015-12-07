@@ -1,14 +1,14 @@
 {
-  "name": "sequelize-redis-cache",
-  "version": "1.1.1",
-  "description": "Caching module for sequelize queries",
+  "name": "skyline-sequelize-redis-cache",
+  "version": "2.1.2",
+  "description": "Skyline Caching module for sequelize queries, modified from sequelize-redis-cache",
   "main": "lib/index.js",
   "scripts": {
     "test": "./node_modules/.bin/mocha --timeout=5000 --require should test/**/*.js"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/rfink/sequelize-redis-cache.git"
+    "url": "https://github.com/jchbh-duplicate/sequelize-redis-cache"
   },
   "keywords": [
     "sequelize",
@@ -25,7 +25,7 @@
     "redis": "0.12.1",
     "sequelize": "~3.0.0",
     "should": "4.0.4",
-    "sqlite3": "3.0.8"
+    "sqlite3": "3.1.0"
   },
   "dependencies": {
     "bluebird": "2.3.2",
