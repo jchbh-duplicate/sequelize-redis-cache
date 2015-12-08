@@ -2,6 +2,8 @@
 var redis = require('redis');
 var Sequelize = require('sequelize');
 var should = require('should');
+var sinon = require('sinon');
+var mlog = require('mocha-logger');
 var initCache = require('..');
 
 var opts = {};
@@ -28,7 +30,7 @@ describe('Sequelize-Redis-Cache', function() {
   var db;
   var Entity;
   var Entity2;
-  var inst;
+  var inst, instBefore;
   var cacher;
 
   before(function(done) {
@@ -55,17 +57,17 @@ describe('Sequelize-Redis-Cache', function() {
     Entity.hasMany(Entity2, { foreignKey: 'entityId' });
     Entity.sync({ force: true })
       .then(function() {
-        Entity2.sync({ force: true }).then(function() {
-          Entity.create({ name: 'Test Instance' }).then(function(entity) {
-            inst = entity;
-            Entity2.create({ entityId: inst.id }).then(function() {
-              return done();
+        return Entity2.sync({ force: true }).then(function() {
+          return Entity.create({ name: 'Test Instance another', createdAt: new Date(new Date().getTime() - 100)}).then(function(entity2){
+            instBefore = entity2;
+            return Entity.create({ name: 'Test Instance' }).then(function(entity) {
+              inst = entity;
+              return Entity2.create({ entityId: inst.id }).then(function() {
+                return done();
+              })
             })
-            .catch(onErr);
           })
-          .catch(onErr);
         })
-        .catch(onErr);
       })
       .catch(onErr);
   });
@@ -73,12 +75,12 @@ describe('Sequelize-Redis-Cache', function() {
   it('should fetch stuff from database with and without cache', function(done) {
     var query = { where: { createdAt: inst.createdAt } };
     var obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.find(query)
       .then(function(res) {
         obj.cacheHit.should.equal(false);
         var obj2 = cacher('entity')
-          .ttl(1);
+          .ttl(10);
         return obj2.find(query)
           .then(function(res) {
             should.exist(res);
@@ -94,12 +96,12 @@ describe('Sequelize-Redis-Cache', function() {
   it('should fetch stuff from database with and without cache', function(done) {
     var query = { where: { createdAt: inst.createdAt } };
     var obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.findOne(query)
       .then(function(res) {
         obj.cacheHit.should.equal(false);
         var obj2 = cacher('entity')
-          .ttl(1);
+          .ttl(10);
         return obj2.findOne(query)
           .then(function(res) {
             should.exist(res);
@@ -114,8 +116,8 @@ describe('Sequelize-Redis-Cache', function() {
 
   it('should not hit cache if no results', function(done) {
     var obj = cacher('entity')
-      .ttl(1);
-    return obj.find({ where: { id: 2 } })
+      .ttl(10);
+    return obj.find({ where: { id: 4 } })
       .then(function(res) {
         should.not.exist(res);
         obj.cacheHit.should.equal(false);
@@ -126,7 +128,7 @@ describe('Sequelize-Redis-Cache', function() {
   it('should clear the cache correctly', function(done) {
     var query = { where: { createdAt: inst.createdAt } };
     var obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.find(query)
       .then(function(res) {
         var key = obj.key('find', query);
@@ -144,7 +146,7 @@ describe('Sequelize-Redis-Cache', function() {
   it('should not blow up with circular reference queries (includes)', function(done) {
     var query = { where: { createdAt: inst.createdAt }, include: [Entity2] };
     var obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.find(query)
       .then(function(res) {
         return done();
@@ -156,7 +158,7 @@ describe('Sequelize-Redis-Cache', function() {
     var query = { where: { createdAt: inst.createdAt } };
     query.include = [Entity2];
     obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.find(query)
       .then(function(res) {
         res.toString().should.not.equal('[object SequelizeInstance]');
@@ -170,7 +172,7 @@ describe('Sequelize-Redis-Cache', function() {
   it('should findAll correctly', function(done) {
     var query = { where: { createdAt: inst.createdAt } };
     var obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.findAll(query)
       .then(function(res) {
         should.exist(res);
@@ -183,40 +185,40 @@ describe('Sequelize-Redis-Cache', function() {
 
   it('should count correctly', function(done) {
     var obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.count()
       .then(function(res) {
         should.exist(res);
-        res.should.equal(1);
+        res.should.equal(2);
         return done();
       }, onErr);
   });
 
   it('should sum correctly', function(done) {
     var obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.sum('id')
       .then(function(res) {
         should.exist(res);
-        res.should.equal(1);
+        res.should.equal(3);
         return done();
       }, onErr);
   });
 
   it('should max correctly', function(done) {
     var obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.max('id')
       .then(function(res) {
         should.exist(res);
-        res.should.equal(1);
+        res.should.equal(2);
         return done();
       }, onErr);
   });
 
   it('should min correctly', function(done) {
     var obj = cacher('entity')
-      .ttl(1);
+      .ttl(10);
     return obj.min('id')
       .then(function(res) {
         should.exist(res);
@@ -224,4 +226,54 @@ describe('Sequelize-Redis-Cache', function() {
         return done();
       }, onErr);
   });
+
+  it('should not get incorrect results if two request happen at the same time', function(done){
+      var obj = cacher('entity')
+          .ttl(10);
+      obj.clearCache().then(function(){
+          var query = { where: { createdAt: inst.createdAt } };
+          var query2 = {where: { createdAt: {$lte: new Date(instBefore.createdAt.getTime() + 100)} }, order: [["id", "ASC"]]};
+          var spyFetchDB = sinon.spy(obj, 'fetchFromDatabase');
+          Promise.all([obj.find(query)
+              .then(function(res) {
+                  should.exist(res);
+                  res.should.have.property('id');
+                  should(res.id).exactly(inst.id);
+              }),
+                  obj.findAll(query2).then(function(res){
+                      should.exist(res);
+                      res.should.be.an.Array;
+                      res.should.have.length(2);
+                      res[0].should.have.property('id');
+                      res[1].should.have.property('id');
+                      should(res[0].id).exactly(instBefore.id);
+                      should(res[1].id).exactly(inst.id);
+                  })])
+              .then(function(){
+                  should(spyFetchDB.calledTwice).ok;
+                  spyFetchDB.reset();
+                  mlog.success("After clean cache, should query twice in db");
+                  Promise.all([obj.find(query)
+                      .then(function(res) {
+                          should.exist(res);
+                          res.should.have.property('id');
+                          should(res.id).exactly(inst.id);
+                      }),
+                          obj.findAll(query2).then(function(res){
+                              should.exist(res);
+                              res.should.be.an.Array;
+                              res.should.have.length(2);
+                              res[0].should.have.property('id');
+                              res[1].should.have.property('id');
+                              should(res[0].id).exactly(instBefore.id);
+                              should(res[1].id).exactly(inst.id);
+                          })])
+                      .then(function(){
+                          should(spyFetchDB.callCount).be.exactly(0);
+                          mlog.success("Fetch again, should match cache");
+                          done()
+                      }).catch(onErr);
+              }).catch(onErr);
+      });
+  })
 });
